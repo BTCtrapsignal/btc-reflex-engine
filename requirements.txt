@@ -1,0 +1,6 @@
+requests
+python-telegram-bot
+pandas
+numpy
+sqlalchemy
+python-dotenv
