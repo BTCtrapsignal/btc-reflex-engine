@@ -323,6 +323,85 @@ class StructureEngine:
             return True
         return max(abs(v - mean) / mean for v in values) < tolerance_pct
 
+    def _build_notes(
+        self,
+        structure_type: str,
+        phase: str,
+        location: str,
+        swing_highs: list[float],
+        swing_lows: list[float],
+    ) -> list[str]:
+        """
+        Build behavioral context notes for this structure observation.
+
+        Describes structural behavior in plain language.
+        Never produces directional commands or trade signals.
+        Output is context for the trader to interpret — not instructions.
+        """
+        notes = []
+
+        # ── Structure character ───────────────────────────────────────────────
+        structure_descriptions = {
+            "range":               "Price consolidating within a horizontal range — boundaries defined by repeated swing interaction.",
+            "descending_wedge":    "Compression structure with lower highs — resistance declining while support holds. Range narrowing.",
+            "ascending_wedge":     "Compression structure with higher lows — support rising while resistance holds. Range narrowing.",
+            "symmetrical_triangle":"Converging structure — both boundaries compressing toward each other. Energy accumulating.",
+            "ascending_triangle":  "Flat resistance with rising support — lower boundary ascending toward upper boundary.",
+            "descending_triangle": "Flat support with declining resistance — upper boundary descending toward lower boundary.",
+            "channel_up":          "Parallel ascending structure — both boundaries rising together. Trend continuation context.",
+            "channel_down":        "Parallel descending structure — both boundaries falling together. Trend continuation context.",
+            "expanding":           "Expanding structure — boundaries diverging. Volatility increasing, range widening.",
+            "complex_range":       "Complex consolidation — swing sequence does not form a clean structure type.",
+        }
+        desc = structure_descriptions.get(structure_type)
+        if desc:
+            notes.append(desc)
+
+        # ── Phase behavioral description ──────────────────────────────────────
+        phase_descriptions = {
+            "compression": "Phase: compression — ATR contracting, candle ranges tightening. Structure coiling.",
+            "expansion":   "Phase: expansion — ATR increasing above baseline. Structure potentially breaking down.",
+            "bouncing":    "Phase: bouncing — price interacting repeatedly with structural boundaries within normal volatility.",
+            "unknown":     "Phase: undetermined — insufficient candle history for phase classification.",
+        }
+        phase_desc = phase_descriptions.get(phase)
+        if phase_desc:
+            notes.append(phase_desc)
+
+        # ── Location behavioral description ───────────────────────────────────
+        location_descriptions = {
+            "at_upper_boundary":  "Price currently interacting with upper structural boundary. Watch for rejection or continuation behavior.",
+            "at_lower_boundary":  "Price currently interacting with lower structural boundary. Watch for absorption or breakdown behavior.",
+            "mid_range":          "Price mid-structure — no immediate boundary pressure. Range center interaction.",
+            "above_structure":    "Price has moved above the defined structure range. Boundary breakout context.",
+            "below_structure":    "Price has moved below the defined structure range. Boundary breakdown context.",
+            "unknown":            "Price location within structure undetermined.",
+        }
+        loc_desc = location_descriptions.get(location)
+        if loc_desc:
+            notes.append(loc_desc)
+
+        # ── Swing sequence context ────────────────────────────────────────────
+        if len(swing_highs) >= 3:
+            h = swing_highs[-3:]
+            if h[0] > h[1] > h[2]:
+                notes.append("Swing highs declining — resistance stepping down across structure.")
+            elif h[0] < h[1] < h[2]:
+                notes.append("Swing highs rising — upper boundary pressure building progressively.")
+            else:
+                notes.append("Swing highs mixed — upper boundary character inconsistent.")
+
+        if len(swing_lows) >= 3:
+            l = swing_lows[-3:]
+            if l[0] < l[1] < l[2]:
+                notes.append("Swing lows rising — support stepping up, lower boundary defending.")
+            elif l[0] > l[1] > l[2]:
+                notes.append("Swing lows declining — lower boundary losing structural support.")
+            else:
+                notes.append("Swing lows mixed — lower boundary character inconsistent.")
+
+        return notes
+
     def _unknown(self, timeframe: str, reason: str) -> StructureState:
         return StructureState(
             timeframe=timeframe,

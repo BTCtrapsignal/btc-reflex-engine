@@ -1,7 +1,11 @@
 """
 BTC Reflex Engine — Configuration
-All settings sourced from environment variables with safe defaults.
-Never shares ENV namespace with BTC Brain Ops (all keys prefixed REFLEX_).
+
+All ENV vars use REFLEX_ prefix to prevent collision with
+BTC Brain / BTC Brain Ops environment variables.
+
+NEVER use generic names like DATABASE_URL, SYMBOL, MODE — those
+may already be set in the shared Railway environment by other systems.
 """
 from __future__ import annotations
 from pydantic import BaseModel
@@ -12,40 +16,39 @@ load_dotenv()
 
 
 class Settings(BaseModel):
-    # ── Database ────────────────────────────────────────────────────────────
+    # ── Database (isolated — never shares with Brain Ops DB) ─────────────────
     reflex_database_url: str = os.getenv(
         "REFLEX_DATABASE_URL", "sqlite:///reflex.db"
     )
 
-    # ── Telegram (separate bot, separate chat — never reuse Brain bot) ───────
+    # ── Telegram (separate bot — never reuse Brain bot token) ────────────────
     reflex_telegram_bot_token: str | None = os.getenv("REFLEX_TELEGRAM_BOT_TOKEN")
-    reflex_telegram_chat_id: str | None = os.getenv("REFLEX_TELEGRAM_CHAT_ID")
+    reflex_telegram_chat_id: str | None   = os.getenv("REFLEX_TELEGRAM_CHAT_ID")
 
-    # ── Brain Ops read-only feed ─────────────────────────────────────────────
-    brain_state_url: str | None = os.getenv("BRAIN_STATE_URL")
+    # ── Brain Ops read-only feed ──────────────────────────────────────────────
+    brain_state_url: str | None = os.getenv("REFLEX_BRAIN_STATE_URL")
 
-    # ── Binance data feed ────────────────────────────────────────────────────
+    # ── Binance data feed ─────────────────────────────────────────────────────
     binance_base_url: str = os.getenv(
-        "BINANCE_BASE_URL", "https://api.binance.com"
+        "REFLEX_BINANCE_BASE_URL", "https://api.binance.com"
     )
-    symbol: str = os.getenv("SYMBOL", "BTCUSDT")
+    symbol: str = os.getenv("REFLEX_SYMBOL", "BTCUSDT")
 
-    # ── System mode (observer = alert-only, no execution) ───────────────────
-    mode: str = os.getenv("MODE", "observer")
+    # ── System mode ───────────────────────────────────────────────────────────
+    # "observer" = alert-only, no execution (Phase 1 — must stay observer)
+    mode: str = os.getenv("REFLEX_MODE", "observer")
 
-    # ── Scheduler intervals (seconds) ───────────────────────────────────────
-    poll_interval_4h: int = int(os.getenv("POLL_INTERVAL_4H", "3600"))   # 1 hr check
-    poll_interval_1h: int = int(os.getenv("POLL_INTERVAL_1H", "900"))    # 15 min check
+    # ── Scheduler intervals (seconds) ─────────────────────────────────────────
+    poll_interval_4h: int = int(os.getenv("REFLEX_POLL_INTERVAL_4H", "3600"))
+    poll_interval_1h: int = int(os.getenv("REFLEX_POLL_INTERVAL_1H", "900"))
 
-    # ── Structure detection thresholds ──────────────────────────────────────
-    # Minimum candles needed to define a swing point
-    swing_lookback: int = int(os.getenv("SWING_LOOKBACK", "5"))
-    # How close to boundary (% of range) counts as "at boundary"
-    boundary_proximity_pct: float = float(os.getenv("BOUNDARY_PROXIMITY_PCT", "0.03"))
+    # ── Structure detection thresholds ────────────────────────────────────────
+    swing_lookback: int          = int(os.getenv("REFLEX_SWING_LOOKBACK", "5"))
+    boundary_proximity_pct: float = float(os.getenv("REFLEX_BOUNDARY_PROXIMITY_PCT", "0.03"))
 
-    # ── Alert thresholds ─────────────────────────────────────────────────────
-    # Minimum behavioral weight to send a Telegram alert
-    alert_threshold: float = float(os.getenv("ALERT_THRESHOLD", "0.40"))
+    # ── Alert threshold ───────────────────────────────────────────────────────
+    # Minimum behavioral weight to trigger Telegram alert (0.0–1.0)
+    alert_threshold: float = float(os.getenv("REFLEX_ALERT_THRESHOLD", "0.40"))
 
 
 settings = Settings()
