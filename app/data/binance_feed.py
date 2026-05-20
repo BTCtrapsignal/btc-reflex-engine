@@ -1,8 +1,22 @@
 """
 BTC Reflex Engine — Binance Candle Feed
+
 Fetches OHLCV candles via Binance public REST API.
 No API key required for market data.
-Returns clean list of dicts consumed by all engines.
+
+FAILOVER STRATEGY:
+  Binance has multiple API endpoints. Some Railway regions are geo-blocked
+  on the primary endpoint (HTTP 451 — Unavailable For Legal Reasons).
+  The fetcher tries each endpoint in order until one succeeds.
+
+  Priority:
+    1. api.binance.com        (primary)
+    2. api1.binance.com       (fallback 1)
+    3. api2.binance.com       (fallback 2)
+    4. api3.binance.com       (fallback 3)
+
+  BINANCE_BASE_URL in ENV overrides the primary if set.
+  All fallbacks are always attempted regardless of ENV setting.
 """
 from __future__ import annotations
 import logging
@@ -13,92 +27,124 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Binance klines column order
+# Klines column order (Binance API spec)
 _KLINE_KEYS = [
     "open_time", "open", "high", "low", "close", "volume",
     "close_time", "quote_volume", "num_trades",
     "taker_buy_base_vol", "taker_buy_quote_vol", "ignore",
 ]
 
+# Endpoint failover chain — tried in order
+# Primary from settings, then hardcoded fallbacks
+def _get_endpoints() -> list[str]:
+    primary = settings.binance_base_url.rstrip("/")
+    fallbacks = [
+        "https://api1.binance.com",
+        "https://api2.binance.com",
+        "https://api3.binance.com",
+        "https://api.binance.com",
+    ]
+    # Primary first, then all fallbacks (deduped)
+    chain = [primary] + [f for f in fallbacks if f != primary]
+    return chain
+
 
 def fetch_candles(
     symbol: str | None = None,
     interval: str = "4h",
     limit: int = 100,
-    retries: int = 3,
-    retry_delay: float = 2.0,
+    retry_delay: float = 3.0,
 ) -> list[dict]:
     """
-    Fetch OHLCV candles from Binance.
+    Fetch OHLCV candles from Binance with automatic endpoint failover.
 
-    Args:
-        symbol:   Trading pair, e.g. "BTCUSDT". Defaults to settings.symbol.
-        interval: Binance interval string: "1h", "4h", "1d", etc.
-        limit:    Number of candles (max 1000).
-        retries:  Retry attempts on network failure.
-
-    Returns:
-        List of candle dicts with float-typed OHLCV fields and timestamps.
-        Returns [] on failure (engines must handle empty input gracefully).
+    Tries each endpoint in the failover chain.
+    Returns [] only if ALL endpoints fail — never raises.
     """
     sym = symbol or settings.symbol
-    url = f"{settings.binance_base_url}/api/v3/klines"
     params = {"symbol": sym, "interval": interval, "limit": limit}
+    endpoints = _get_endpoints()
 
-    for attempt in range(retries):
+    for base_url in endpoints:
+        url = f"{base_url}/api/v3/klines"
         try:
-            r = requests.get(url, params=params, timeout=10)
+            r = requests.get(url, params=params, timeout=15)
+
+            # 451 = geo-blocked — try next endpoint immediately
+            if r.status_code == 451:
+                logger.warning(
+                    "[binance_feed] %s geo-blocked (451) — trying next endpoint", base_url
+                )
+                continue
+
             r.raise_for_status()
-            raw = r.json()
-            candles = _parse_klines(raw)
+            candles = _parse_klines(r.json())
             logger.info(
-                "[binance_feed] %s %s: fetched %d candles",
-                sym, interval, len(candles)
+                "[binance_feed] %s %s: %d candles via %s",
+                sym, interval, len(candles), base_url
             )
             return candles
-        except requests.RequestException as exc:
-            logger.warning(
-                "[binance_feed] attempt %d/%d failed: %s",
-                attempt + 1, retries, exc
-            )
-            if attempt < retries - 1:
-                time.sleep(retry_delay)
 
-    logger.error("[binance_feed] all retries exhausted for %s %s", sym, interval)
+        except requests.HTTPError as exc:
+            logger.warning("[binance_feed] HTTP error at %s: %s", base_url, exc)
+            time.sleep(retry_delay)
+        except requests.ConnectionError as exc:
+            logger.warning("[binance_feed] Connection error at %s: %s", base_url, exc)
+        except requests.Timeout:
+            logger.warning("[binance_feed] Timeout at %s", base_url)
+        except Exception as exc:
+            logger.warning("[binance_feed] Unexpected error at %s: %s", base_url, exc)
+
+    logger.error(
+        "[binance_feed] All endpoints exhausted for %s %s — returning empty",
+        sym, interval
+    )
     return []
 
 
 def fetch_current_price(symbol: str | None = None) -> Optional[float]:
-    """Fetch the latest traded price for a symbol."""
+    """
+    Fetch latest price with endpoint failover.
+    Returns None if all endpoints fail — never raises.
+    """
     sym = symbol or settings.symbol
-    url = f"{settings.binance_base_url}/api/v3/ticker/price"
-    try:
-        r = requests.get(url, params={"symbol": sym}, timeout=5)
-        r.raise_for_status()
-        return float(r.json()["price"])
-    except Exception as exc:
-        logger.warning("[binance_feed] price fetch failed: %s", exc)
-        return None
+    endpoints = _get_endpoints()
+
+    for base_url in endpoints:
+        url = f"{base_url}/api/v3/ticker/price"
+        try:
+            r = requests.get(url, params={"symbol": sym}, timeout=8)
+            if r.status_code == 451:
+                logger.warning("[binance_feed] price: %s geo-blocked — trying next", base_url)
+                continue
+            r.raise_for_status()
+            price = float(r.json()["price"])
+            logger.info("[binance_feed] price %s: %.2f via %s", sym, price, base_url)
+            return price
+        except Exception as exc:
+            logger.warning("[binance_feed] price fetch failed at %s: %s", base_url, exc)
+
+    logger.error("[binance_feed] All endpoints failed for price — returning None")
+    return None
 
 
 def _parse_klines(raw: list) -> list[dict]:
-    """Parse raw Binance kline arrays into clean dicts with float values."""
+    """Parse raw Binance kline arrays into clean dicts."""
     candles = []
     for row in raw:
         c = dict(zip(_KLINE_KEYS, row))
+        vol = float(c["volume"])
         candles.append({
-            "open_time":  int(c["open_time"]),
-            "close_time": int(c["close_time"]),
-            "open":       float(c["open"]),
-            "high":       float(c["high"]),
-            "low":        float(c["low"]),
-            "close":      float(c["close"]),
-            "volume":     float(c["volume"]),
-            "num_trades": int(c["num_trades"]),
-            # Taker buy ratio: buy volume / total volume — measures aggression direction
+            "open_time":       int(c["open_time"]),
+            "close_time":      int(c["close_time"]),
+            "open":            float(c["open"]),
+            "high":            float(c["high"]),
+            "low":             float(c["low"]),
+            "close":           float(c["close"]),
+            "volume":          vol,
+            "num_trades":      int(c["num_trades"]),
             "taker_buy_ratio": (
-                float(c["taker_buy_base_vol"]) / float(c["volume"])
-                if float(c["volume"]) > 0 else 0.5
+                float(c["taker_buy_base_vol"]) / vol if vol > 0 else 0.5
             ),
         })
     return candles
@@ -106,13 +152,13 @@ def _parse_klines(raw: list) -> list[dict]:
 
 def get_market_snapshot(symbol: str | None = None) -> dict:
     """
-    Convenience: fetch 4H and 1H candles + current price in one call.
-    Returns dict consumed by the engine pipeline.
+    Fetch 4H and 1H candles + current price in one call.
+    All three use the same failover chain independently.
     """
     sym = symbol or settings.symbol
     return {
-        "symbol": sym,
-        "candles_4h": fetch_candles(sym, interval="4h", limit=100),
-        "candles_1h": fetch_candles(sym, interval="1h", limit=100),
+        "symbol":        sym,
+        "candles_4h":    fetch_candles(sym, interval="4h", limit=100),
+        "candles_1h":    fetch_candles(sym, interval="1h", limit=100),
         "current_price": fetch_current_price(sym),
     }
