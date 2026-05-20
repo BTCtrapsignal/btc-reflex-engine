@@ -1,6 +1,5 @@
-requests
-python-telegram-bot
-pandas
-numpy
-sqlalchemy
-python-dotenv
+requests==2.31.0
+sqlalchemy==2.0.30
+python-dotenv==1.0.1
+pydantic==2.7.1
+schedule==1.2.1

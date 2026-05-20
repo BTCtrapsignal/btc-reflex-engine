@@ -22,38 +22,30 @@ class Settings(BaseModel):
     reflex_telegram_chat_id: str | None = os.getenv("REFLEX_TELEGRAM_CHAT_ID")
 
     # ── Brain Ops read-only feed ─────────────────────────────────────────────
-    reflex_brain_state_url: str | None = os.getenv("REFLEX_BRAIN_STATE_URL")
+    brain_state_url: str | None = os.getenv("BRAIN_STATE_URL")
 
     # ── Binance data feed ────────────────────────────────────────────────────
-    reflex_binance_base_url: str = os.getenv(
-        "REFLEX_BINANCE_BASE_URL", "https://api.binance.com"
+    binance_base_url: str = os.getenv(
+        "BINANCE_BASE_URL", "https://api.binance.com"
     )
-    reflex_symbol: str = os.getenv("REFLEX_SYMBOL", "BTCUSDT")
+    symbol: str = os.getenv("SYMBOL", "BTCUSDT")
 
     # ── System mode (observer = alert-only, no execution) ───────────────────
-    reflex_mode: str = os.getenv("REFLEX_MODE", "observer")
+    mode: str = os.getenv("MODE", "observer")
 
     # ── Scheduler intervals (seconds) ───────────────────────────────────────
-    reflex_poll_interval_4h: int = int(
-        os.getenv("REFLEX_POLL_INTERVAL_4H", "3600")
-    )
-    reflex_poll_interval_1h: int = int(
-        os.getenv("REFLEX_POLL_INTERVAL_1H", "900")
-    )
+    poll_interval_4h: int = int(os.getenv("POLL_INTERVAL_4H", "3600"))   # 1 hr check
+    poll_interval_1h: int = int(os.getenv("POLL_INTERVAL_1H", "900"))    # 15 min check
 
     # ── Structure detection thresholds ──────────────────────────────────────
-    reflex_swing_lookback: int = int(
-        os.getenv("REFLEX_SWING_LOOKBACK", "5")
-    )
-
-    reflex_boundary_proximity_pct: float = float(
-        os.getenv("REFLEX_BOUNDARY_PROXIMITY_PCT", "0.03")
-    )
+    # Minimum candles needed to define a swing point
+    swing_lookback: int = int(os.getenv("SWING_LOOKBACK", "5"))
+    # How close to boundary (% of range) counts as "at boundary"
+    boundary_proximity_pct: float = float(os.getenv("BOUNDARY_PROXIMITY_PCT", "0.03"))
 
     # ── Alert thresholds ─────────────────────────────────────────────────────
-    reflex_alert_threshold: float = float(
-        os.getenv("REFLEX_ALERT_THRESHOLD", "0.40")
-    )
+    # Minimum behavioral weight to send a Telegram alert
+    alert_threshold: float = float(os.getenv("ALERT_THRESHOLD", "0.40"))
 
 
 settings = Settings()
