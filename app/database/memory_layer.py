@@ -82,8 +82,9 @@ class MemoryLayer:
 
         if active and self._is_same_structure(active, structure):
             # Structure continues — update lifecycle counters
+            # Guard against None from DB reads (schema migration safety)
             active.last_seen_at = datetime.now(timezone.utc)
-            active.candles_alive += 1
+            active.candles_alive = (active.candles_alive or 0) + 1
             logger.debug(
                 "[memory] Structure continues: %s %s | age=%d candles",
                 timeframe, active.structure_type, active.candles_alive
@@ -149,11 +150,13 @@ class MemoryLayer:
             return None
 
         # Which touch number is this?
+        # Guard against None — SQLAlchemy may return None for default=0 columns
+        # if the row was written before the column existed.
         if rotation.boundary == "lower":
-            structure_mem.lower_touches += 1
+            structure_mem.lower_touches = (structure_mem.lower_touches or 0) + 1
             touch_number = structure_mem.lower_touches
         else:
-            structure_mem.upper_touches += 1
+            structure_mem.upper_touches = (structure_mem.upper_touches or 0) + 1
             touch_number = structure_mem.upper_touches
 
         touch = BoundaryTouchLog(
@@ -407,15 +410,15 @@ class MemoryLayer:
             return
         if touch.boundary == "lower":
             if outcome == "bounce":
-                mem.lower_bounces += 1
+                mem.lower_bounces = (mem.lower_bounces or 0) + 1
             elif outcome == "break":
-                mem.lower_breaks += 1
+                mem.lower_breaks = (mem.lower_breaks or 0) + 1
                 self._close_structure(db, mem, reason="lower_break")
         else:
             if outcome == "bounce":
-                mem.upper_bounces += 1
+                mem.upper_bounces = (mem.upper_bounces or 0) + 1
             elif outcome == "break":
-                mem.upper_breaks += 1
+                mem.upper_breaks = (mem.upper_breaks or 0) + 1
                 self._close_structure(db, mem, reason="upper_break")
 
     def _update_pattern_outcomes(
@@ -460,18 +463,19 @@ class MemoryLayer:
             )
             db.add(pattern)
 
-        pattern.total_occurrences += 1
+        # Guard all counter fields against None from DB reads
+        pattern.total_occurrences = (pattern.total_occurrences or 0) + 1
         if outcome == "bounce":
-            pattern.bounce_count += 1
+            pattern.bounce_count = (pattern.bounce_count or 0) + 1
         elif outcome == "break":
-            pattern.break_count += 1
+            pattern.break_count = (pattern.break_count or 0) + 1
         else:
-            pattern.neutral_count += 1
+            pattern.neutral_count = (pattern.neutral_count or 0) + 1
 
-        # Recalculate rates
-        total = pattern.total_occurrences
-        pattern.bounce_rate = round(pattern.bounce_count / total, 4)
-        pattern.break_rate = round(pattern.break_count / total, 4)
+        # Recalculate rates — guard against None denominators
+        total = pattern.total_occurrences or 1
+        pattern.bounce_rate = round((pattern.bounce_count or 0) / total, 4)
+        pattern.break_rate  = round((pattern.break_count  or 0) / total, 4)
 
         # Running average of price change magnitude
         prev_avg = pattern.avg_price_change_pct or 0.0

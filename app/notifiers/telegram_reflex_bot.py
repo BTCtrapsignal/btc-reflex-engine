@@ -7,11 +7,18 @@ Separate bot from BTC Brain — never reuses Brain's token or chat.
 RESILIENCE:
   - Missing token/chat ID → silently skip, log warning, never crash
   - 404 token error → clear error message in logs, system continues
-  - Parse mode failure → retry as plain text
   - Network error → log and return False, system continues
+
+ERROR THROTTLE:
+  Repeated identical errors are suppressed from Telegram to prevent spam.
+  First occurrence → full message sent.
+  Repeats within cooldown window → Railway log only, Telegram silent.
+  After cooldown → one summary sent, then resets.
 """
 from __future__ import annotations
+import hashlib
 import logging
+import time
 import requests
 from app.config import settings
 from app.engines.context_assembler import BehavioralContext
@@ -19,6 +26,11 @@ from app.engines.context_assembler import BehavioralContext
 logger = logging.getLogger(__name__)
 
 _MAX_LENGTH = 4096
+
+# ── Error throttle state (in-memory, per process) ────────────────────────────
+# { error_hash: (first_seen_ts, suppressed_count) }
+_error_throttle: dict[str, tuple[float, int]] = {}
+_ERROR_COOLDOWN_SECONDS = 4 * 3600   # 4 hours
 
 
 def send_observation(context: BehavioralContext) -> bool:
@@ -45,8 +57,50 @@ def send_startup_message() -> bool:
 
 
 def send_error_alert(error_description: str) -> bool:
+    """
+    Send a runtime error to Telegram with throttling.
+
+    First occurrence: full message sent immediately.
+    Repeats within cooldown: suppressed from Telegram, logged to Railway only.
+    After cooldown expires: one summary sent, counter resets.
+    """
     if not _is_configured():
+        logger.error("[reflex_error] %s", error_description)
         return False
+
+    error_hash = hashlib.md5(error_description[:200].encode()).hexdigest()[:12]
+    now = time.time()
+
+    if error_hash in _error_throttle:
+        first_seen, suppressed_count = _error_throttle[error_hash]
+        age = now - first_seen
+
+        if age < _ERROR_COOLDOWN_SECONDS:
+            # Still in cooldown — suppress Telegram, log to Railway only
+            _error_throttle[error_hash] = (first_seen, suppressed_count + 1)
+            logger.error(
+                "[reflex_error] (suppressed from Telegram, occurrence #%d) %s",
+                suppressed_count + 2, error_description
+            )
+            # Every 10 suppressions, send one summary so user knows it's ongoing
+            if (suppressed_count + 1) % 10 == 0:
+                summary = (
+                    f"BTC Reflex — repeated error suppressed "
+                    f"({suppressed_count + 1} times in {age / 3600:.1f}h).\n"
+                    f"Error: {error_description[:120]}\n"
+                    f"Check Railway logs for full detail."
+                )
+                return _send(summary)
+            return False
+
+        else:
+            # Cooldown expired — reset and send fresh
+            logger.info("[reflex_error] Cooldown expired for error hash %s — resetting.", error_hash)
+            del _error_throttle[error_hash]
+
+    # First occurrence — record and send
+    _error_throttle[error_hash] = (now, 0)
+    logger.error("[reflex_error] (first occurrence) %s", error_description)
     return _send(f"BTC Reflex Engine error:\n{error_description}")
 
 
