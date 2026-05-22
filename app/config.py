@@ -46,6 +46,16 @@ class Settings(BaseModel):
     swing_lookback: int          = int(os.getenv("REFLEX_SWING_LOOKBACK", "5"))
     boundary_proximity_pct: float = float(os.getenv("REFLEX_BOUNDARY_PROXIMITY_PCT", "0.03"))
 
+    # ── Alert gate tuning ─────────────────────────────────────────────────────
+    # Minimum minutes between MEDIUM-priority Telegram alerts
+    medium_cooldown_minutes: int = int(
+        os.getenv("REFLEX_MEDIUM_COOLDOWN_MINUTES", "45")
+    )
+    # Hours of structural persistence before a single reminder is allowed
+    persistence_reminder_hours: float = float(
+        os.getenv("REFLEX_PERSISTENCE_REMINDER_HOURS", "8")
+    )
+
     # ── Alert threshold ───────────────────────────────────────────────────────
     # Minimum behavioral weight to trigger Telegram alert (0.0–1.0)
     alert_threshold: float = float(os.getenv("REFLEX_ALERT_THRESHOLD", "0.40"))

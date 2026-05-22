@@ -22,6 +22,7 @@ from app.engines.volatility_engine import VolatilityEngine
 from app.engines.context_assembler import BehavioralContextAssembler
 from app.integrations.brain_reader import fetch_brain_state
 from app.notifiers.telegram_reflex_bot import send_observation, send_error_alert
+from app.notifiers import alert_gate
 from app.database.db import get_db
 from app.database.models import TacticalObservation
 from app.database.memory_layer import MemoryLayer
@@ -120,16 +121,44 @@ def run_observation_cycle() -> None:
         # ── 8. Log to Database ────────────────────────────────────────────────
         _log_observation(context, current_price)
 
-        # ── 9. Alert if Behaviorally Significant ──────────────────────────────
-        if context.alert_worthy:
-            alert_sent = send_observation(context)
-            logger.info(
-                "[scheduler] Alert sent=%s (weight=%.2f)", alert_sent, context.behavioral_weight
-            )
+        # ── 9. Alert Gate — event-driven, no spam ─────────────────────────────
+        # All Telegram decisions go through alert_gate.
+        # Heartbeat / unchanged state / low weight → Railway log only.
+        # Only meaningful state changes or HIGH priority → Telegram.
+        decision = alert_gate.evaluate(context)
+
+        logger.info(
+            "[scheduler] Gate: priority=%s send=%s | %s",
+            decision.priority, decision.should_send, decision.reason
+        )
+
+        if decision.should_send:
+            # Use compact persistence narrative for reminders
+            # Full narrative for all other alerts
+            if decision.is_persistence_reminder:
+                from app.notifiers.telegram_reflex_bot import send_raw
+                reminder_text = alert_gate.build_persistence_narrative(context)
+                sent = send_raw(reminder_text)
+            else:
+                sent = send_observation(context)
+
+            if sent:
+                alert_gate.record_sent(context, is_reminder=decision.is_persistence_reminder)
+                logger.info(
+                    "[scheduler] Alert delivered (priority=%s weight=%.2f reminder=%s)",
+                    decision.priority, context.behavioral_weight,
+                    decision.is_persistence_reminder,
+                )
         else:
+            # Heartbeat — Railway log only, never Telegram
+            price_str = f"{current_price:,.2f}" if current_price else "unknown"
             logger.info(
-                "[scheduler] Weight %.2f below threshold %.2f — no alert.",
-                context.behavioral_weight, settings.alert_threshold
+                "[HEARTBEAT] price=%s structure=%s phase=%s weight=%.2f | %s",
+                price_str,
+                context.structure_4h.structure_type,
+                context.structure_4h.phase,
+                context.behavioral_weight,
+                decision.reason,
             )
 
         elapsed = (datetime.now(timezone.utc) - cycle_start).total_seconds()
