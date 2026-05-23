@@ -26,6 +26,7 @@ from app.notifiers import alert_gate
 from app.database.db import get_db
 from app.database.models import TacticalObservation
 from app.database.memory_layer import MemoryLayer
+from app.database.extended_memory import ExtendedMemoryWriter
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +36,8 @@ _rotation_engine = RotationEngine()
 _choch_engine = CHoCHEngine(swing_lookback=settings.swing_lookback)
 _volatility_engine = VolatilityEngine()
 _assembler = BehavioralContextAssembler()
-_memory = MemoryLayer()
+_memory  = MemoryLayer()
+_ext_mem = ExtendedMemoryWriter()
 
 
 def run_observation_cycle() -> None:
@@ -103,6 +105,26 @@ def run_observation_cycle() -> None:
             # Build memory context for narrative
             memory_ctx = _memory.get_memory_context(
                 db, settings.symbol, "4H", structure_4h, rotation
+            )
+
+            # ── Phase 2: Extended observational archives ───────────────────
+            # Detect and record behavioral events — append-only, never modifies
+            # production state, never influences live behavior.
+            _ext_mem.detect_and_record_fake_breakout(
+                db, settings.symbol, "4H", candles_4h,
+                structure_4h, volatility, brain
+            )
+            _ext_mem.detect_and_record_liquidity_sweep(
+                db, settings.symbol, "4H", candles_4h,
+                rotation, volatility, brain, structure_4h
+            )
+            _ext_mem.detect_and_record_volatility_trap(
+                db, settings.symbol, "4H", candles_4h,
+                volatility, structure_4h, brain
+            )
+            _ext_mem.detect_and_record_failed_continuation(
+                db, settings.symbol, "4H", candles_4h,
+                choch, structure_4h, volatility, brain
             )
 
         # ── 7. Assemble Behavioral Context ────────────────────────────────────

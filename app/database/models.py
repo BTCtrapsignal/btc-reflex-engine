@@ -317,3 +317,185 @@ class PatternOutcome(Base):
 def init_db() -> None:
     """Create all tables if they don't exist. Safe to call on every startup."""
     Base.metadata.create_all(bind=engine)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PHASE 2 — EXTENDED OBSERVATIONAL ARCHIVES
+# Append-only behavioral event records.
+# OBSERVATIONAL ONLY — no signal authority, no execution influence.
+# ══════════════════════════════════════════════════════════════════════════════
+
+class FakeBreakoutEvent(Base):
+    """
+    Archive of observed fake breakout events.
+
+    A fake breakout is detected when price moves beyond a structural
+    boundary but fails to sustain the move and reverses back inside.
+
+    This is OBSERVATION data only.
+    It does not generate signals or modify production confidence.
+    """
+    __tablename__ = "fake_breakout_events"
+
+    id = Column(Integer, primary_key=True)
+    observed_at = Column(DateTime, default=datetime.utcnow, index=True)
+    symbol = Column(String(20), default="BTCUSDT", index=True)
+    timeframe = Column(String(10))
+
+    # Breakout characteristics
+    breakout_direction = Column(String(10))      # "up", "down"
+    breakout_level = Column(Float, nullable=True)
+    breakout_magnitude_pct = Column(Float, default=0.0)  # how far it went beyond level
+
+    # Rejection speed — how quickly price returned inside structure
+    # "immediate" (1 candle), "fast" (2-3 candles), "slow" (4+ candles)
+    rejection_speed = Column(String(20), default="unknown")
+    candles_outside = Column(Integer, default=0)
+
+    # Context at time of event
+    volatility_state = Column(String(20), default="unknown")
+    structure_type = Column(String(50), default="unknown")
+    structure_phase = Column(String(50), default="unknown")
+    regime_context = Column(String(50), default="unknown")  # from Brain if available
+
+    # Liquidity behavior during fake breakout
+    # "sweep_then_reverse", "volume_spike_no_follow", "absorption", "unknown"
+    liquidity_behavior = Column(String(50), default="unknown")
+
+    # Was a CHoCH detected shortly after?
+    choch_followed = Column(Boolean, default=False)
+
+    notes = Column(Text, default="")
+
+
+class LiquiditySweepEvent(Base):
+    """
+    Archive of observed liquidity sweep events.
+
+    A sweep occurs when price briefly moves beyond a key level
+    (liquidating stops/orders there) before returning.
+
+    OBSERVATIONAL ONLY.
+    """
+    __tablename__ = "liquidity_sweep_events"
+
+    id = Column(Integer, primary_key=True)
+    observed_at = Column(DateTime, default=datetime.utcnow, index=True)
+    symbol = Column(String(20), default="BTCUSDT", index=True)
+    timeframe = Column(String(10))
+
+    # Sweep characteristics
+    sweep_direction = Column(String(10))         # "up" (swept highs), "down" (swept lows)
+    sweep_level = Column(Float, nullable=True)   # price level swept
+    sweep_magnitude_pct = Column(Float, default=0.0)
+
+    # What happened after the sweep
+    # "reversed_strongly", "reversed_slowly", "continued", "ranging", "unknown"
+    recovery_behavior = Column(String(50), default="unknown")
+    candles_to_recovery = Column(Integer, nullable=True)
+    recovery_pct = Column(Float, nullable=True)  # how much price recovered
+
+    # Did price continue in sweep direction after recovery failed?
+    continuation_after_sweep = Column(Boolean, default=False)
+
+    # Context
+    volatility_state = Column(String(20), default="unknown")
+    structure_type = Column(String(50), default="unknown")
+    regime_context = Column(String(50), default="unknown")
+
+    notes = Column(Text, default="")
+
+
+class VolatilityTrapEvent(Base):
+    """
+    Archive of volatility trap events.
+
+    A volatility trap is when a compression/expansion signal forms
+    but the expected expansion fails — price returns to range
+    without meaningful directional follow-through.
+
+    OBSERVATIONAL ONLY.
+    """
+    __tablename__ = "volatility_trap_events"
+
+    id = Column(Integer, primary_key=True)
+    observed_at = Column(DateTime, default=datetime.utcnow, index=True)
+    symbol = Column(String(20), default="BTCUSDT", index=True)
+    timeframe = Column(String(10))
+
+    # Pre-trap state
+    pre_trap_volatility = Column(String(20), default="unknown")  # "compressed", "compressing"
+    pre_trap_atr_ratio = Column(Float, nullable=True)
+    compression_streak_candles = Column(Integer, default=0)
+
+    # Trap direction — which way the failed expansion went
+    trap_direction = Column(String(10), default="unknown")  # "up", "down"
+
+    # How badly it failed
+    # "immediate_reversal", "slow_fade", "range_return", "unknown"
+    failed_expansion_type = Column(String(50), default="unknown")
+    max_expansion_pct = Column(Float, nullable=True)  # how far it got before failing
+
+    # Recovery
+    # "returned_to_range", "new_compression", "breakdown", "unknown"
+    recovery_type = Column(String(50), default="unknown")
+    duration_candles = Column(Integer, default=0)  # how long trap lasted
+
+    # Context
+    structure_type = Column(String(50), default="unknown")
+    regime_context = Column(String(50), default="unknown")
+
+    notes = Column(Text, default="")
+
+
+class FailedContinuationEvent(Base):
+    """
+    Archive of failed continuation events.
+
+    A failed continuation is when a trend or directional move that
+    appeared to be continuing instead stalls and reverses.
+    Common in ranging markets disguised as trending.
+
+    OBSERVATIONAL ONLY.
+    """
+    __tablename__ = "failed_continuation_events"
+
+    id = Column(Integer, primary_key=True)
+    observed_at = Column(DateTime, default=datetime.utcnow, index=True)
+    symbol = Column(String(20), default="BTCUSDT", index=True)
+    timeframe = Column(String(10))
+
+    # What direction was expected to continue
+    expected_direction = Column(String(10), default="unknown")  # "up", "down"
+
+    # How quickly it failed
+    # "immediate" (1-2 candles), "fast" (3-5), "gradual" (6+)
+    continuation_failure_speed = Column(String(20), default="unknown")
+    candles_before_failure = Column(Integer, default=0)
+
+    # What followed the failure
+    choch_after_failure = Column(Boolean, default=False)
+    volatility_shift = Column(Boolean, default=False)
+    # "compression", "expansion", "ranging", "reversal", "unknown"
+    structure_transition = Column(String(50), default="unknown")
+
+    # How much of the expected continuation happened before failure (%)
+    continuation_progress_pct = Column(Float, nullable=True)
+
+    # Context
+    volatility_state = Column(String(20), default="unknown")
+    structure_type = Column(String(50), default="unknown")
+    regime_context = Column(String(50), default="unknown")
+    brain_continuation_state = Column(String(50), default="unknown")
+
+    notes = Column(Text, default="")
+
+
+# ── Phase 2 init (called alongside existing init_db) ──────────────────────────
+def init_phase2_tables() -> None:
+    """
+    Create Phase 2 observational archive tables.
+    Safe to call on startup — creates only if not exists.
+    Does not modify existing Phase 1 tables.
+    """
+    Base.metadata.create_all(bind=engine)

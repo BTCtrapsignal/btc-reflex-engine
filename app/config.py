@@ -56,6 +56,12 @@ class Settings(BaseModel):
         os.getenv("REFLEX_PERSISTENCE_REMINDER_HOURS", "8")
     )
 
+    # ── Phase 2 features ─────────────────────────────────────────────────────
+    # Sandbox framework (disabled by default — set true to enable replay queries)
+    sandbox_enabled: bool = os.getenv("REFLEX_SANDBOX_ENABLED", "false").lower() == "true"
+    # Research metadata API (disabled by default)
+    research_api_enabled: bool = os.getenv("REFLEX_RESEARCH_API_ENABLED", "false").lower() == "true"
+
     # ── Alert threshold ───────────────────────────────────────────────────────
     # Minimum behavioral weight to trigger Telegram alert (0.0–1.0)
     alert_threshold: float = float(os.getenv("REFLEX_ALERT_THRESHOLD", "0.40"))
