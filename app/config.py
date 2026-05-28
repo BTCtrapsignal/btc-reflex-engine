@@ -56,6 +56,10 @@ class Settings(BaseModel):
         os.getenv("REFLEX_PERSISTENCE_REMINDER_HOURS", "8")
     )
 
+    # ── Monitor HTTP server ───────────────────────────────────────────────────
+    # Port for read-only status endpoint (for btc-system-monitor)
+    monitor_port: int = int(os.getenv("REFLEX_MONITOR_PORT", "8080"))
+
     # ── Phase 2 features ─────────────────────────────────────────────────────
     # Sandbox framework (disabled by default — set true to enable replay queries)
     sandbox_enabled: bool = os.getenv("REFLEX_SANDBOX_ENABLED", "false").lower() == "true"

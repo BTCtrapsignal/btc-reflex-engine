@@ -27,6 +27,7 @@ from app.database.db import get_db
 from app.database.models import TacticalObservation
 from app.database.memory_layer import MemoryLayer
 from app.database.extended_memory import ExtendedMemoryWriter
+from app.monitor import runtime_state
 
 logger = logging.getLogger(__name__)
 
@@ -186,11 +187,59 @@ def run_observation_cycle() -> None:
         elapsed = (datetime.now(timezone.utc) - cycle_start).total_seconds()
         logger.info("[scheduler] ── Cycle complete in %.1fs ──", elapsed)
 
+        # Update monitor runtime state — non-blocking, never affects cycle
+        try:
+            runtime_state.update_after_cycle(
+                success         = True,
+                cycle_secs      = elapsed,
+                structure_type  = context.structure_4h.structure_type,
+                structure_phase = context.structure_4h.phase,
+                location        = context.structure_4h.location,
+                volatility      = context.volatility.state,
+                weight          = context.behavioral_weight,
+                price           = current_price,
+                choch_detected  = context.choch.choch_detected,
+                alert_priority  = decision.priority,
+                brain_source    = context.brain.source,
+            )
+            _update_memory_counts()
+        except Exception as state_exc:
+            logger.debug("[scheduler] runtime_state update skipped: %s", state_exc)
+
     except Exception as exc:
         logger.exception("[scheduler] Cycle failed: %s", exc)
+        try:
+            runtime_state.update_after_cycle(
+                success=False, cycle_secs=0, structure_type="unknown",
+                structure_phase="unknown", location="unknown",
+                volatility="unknown", weight=0.0, price=None,
+                choch_detected=False, alert_priority="LOW",
+                brain_source="fallback",
+            )
+        except Exception:
+            pass
         send_error_alert(f"Reflex cycle error: {exc}")
 
 
+
+
+def _update_memory_counts() -> None:
+    """Pull memory record counts and push to runtime state for monitor."""
+    try:
+        from app.database.models import (
+            StructureMemory, BoundaryTouchLog, PatternOutcome,
+            FakeBreakoutEvent, LiquiditySweepEvent,
+        )
+        with get_db() as db:
+            runtime_state.update_memory_counts(
+                structure_records     = db.query(StructureMemory).count(),
+                touch_records         = db.query(BoundaryTouchLog).count(),
+                pattern_records       = db.query(PatternOutcome).count(),
+                fake_breakout_records = db.query(FakeBreakoutEvent).count(),
+                sweep_records         = db.query(LiquiditySweepEvent).count(),
+            )
+    except Exception as exc:
+        logger.debug("[scheduler] memory count update skipped: %s", exc)
 
 
 def _log_observation(context, current_price: float | None) -> None:
