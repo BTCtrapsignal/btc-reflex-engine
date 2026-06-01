@@ -30,8 +30,8 @@ HIGH — Telegram immediately. Bypass cooldown. Duplicate suppression still appl
   ONLY these 4 cases:
     1. CHoCH confirmed (conviction >= 0.40)
     2. Structure type transition (quality >= 0.30, not first cycle)
-    3. Brain risk deterioration (normal → reduced/off)
-    4. Brain risk recovery (reduced/off → normal)
+    3. TRAPPED_POSITIONING with MEDIUM/HIGH confidence (new event)
+    4. EXPANSION_INITIATING with HIGH confidence (new event)
 
 ━━━ HASH DESIGN ━━━
   _hash_state()    — noise-immune, for duplicate suppression only
@@ -204,10 +204,9 @@ def _classify_priority(context: BehavioralContext) -> str:
     """
     choch     = context.choch
     s4h       = context.structure_4h
-    brain     = context.brain
     weight    = context.behavioral_weight
-    prev_risk = _last_state_snapshot.get("brain_risk_mode", brain.risk_mode)
-    prev_type = _last_state_snapshot.get("structure_type", s4h.structure_type)
+    prev_type    = _last_state_snapshot.get("structure_type", s4h.structure_type)
+    prev_verdict = _last_state_snapshot.get("behavioral_verdict", "NO_CLEAR_VERDICT")
 
     # ── HIGH (strict — 4 cases only) ─────────────────────────────────────────
     if choch.choch_detected and choch.conviction >= CHOCH_MIN_CONVICTION:
@@ -221,11 +220,15 @@ def _classify_priority(context: BehavioralContext) -> str:
     ):
         return "HIGH"
 
-    if brain.risk_mode in ("off", "reduced") and prev_risk == "normal":
-        return "HIGH"
-
-    if brain.risk_mode == "normal" and prev_risk in ("off", "reduced"):
-        return "HIGH"
+    # W22: FAILED_CONTINUATION and TRAPPED_POSITIONING are HIGH events
+    # (CHoCH already covered above, but these add secondary checks)
+    verdict = context.interpretation.verdict
+    if verdict == "TRAPPED_POSITIONING" and context.interpretation.confidence in ("HIGH", "MEDIUM"):
+        if prev_verdict != "TRAPPED_POSITIONING":
+            return "HIGH"
+    if verdict == "EXPANSION_INITIATING" and context.interpretation.confidence == "HIGH":
+        if prev_verdict != "EXPANSION_INITIATING":
+            return "HIGH"
 
     # ── MEDIUM ───────────────────────────────────────────────────────────────
     if weight >= 0.35:
@@ -251,10 +254,10 @@ def _high_reason(context: BehavioralContext) -> str:
             f"{prev_type} → {context.structure_4h.structure_type}"
         )
 
-    prev_risk = _last_state_snapshot.get("brain_risk_mode", "")
-    if context.brain.risk_mode != prev_risk and prev_risk:
+    prev_v = _last_state_snapshot.get("behavioral_verdict", "")
+    if context.interpretation.verdict != prev_v and prev_v:
         parts.append(
-            f"Brain risk mode: {prev_risk} → {context.brain.risk_mode}"
+            f"Behavioral verdict: {prev_v} → {context.interpretation.verdict}"
         )
 
     return " | ".join(parts) if parts else "HIGH structural event"
@@ -314,9 +317,8 @@ def _state_has_changed(context: BehavioralContext) -> tuple[bool, list[str]]:
         "structure_location",
         "rotation_boundary",
         "volatility_state",
-        "brain_regime",
-        "brain_bias",
-        "brain_risk_mode",
+        # Brain fields removed — W22
+        "behavioral_verdict",
         "choch_detected",
     ]
     for field in discrete:
@@ -346,9 +348,9 @@ def _extract_state(context: BehavioralContext) -> dict:
         "choch_conviction":   round(context.choch.conviction, 2),
         "volatility_state":   context.volatility.state,
         "rotation_boundary":  context.rotation.boundary,
-        "brain_regime":       context.brain.market_regime,
-        "brain_bias":         context.brain.macro_bias,
-        "brain_risk_mode":    context.brain.risk_mode,
+        # Brain fields removed — W22 architecture correction
+        "behavioral_verdict": context.interpretation.verdict,
+        "verdict_confidence": context.interpretation.confidence,
         "behavioral_weight":  round(context.behavioral_weight, 2),
     }
 
@@ -401,8 +403,8 @@ def _hash_state(context: BehavioralContext) -> dict:
             context.choch.choch_direction
             if context.choch.choch_detected else "none"
         ),
-        "brain_regime":       context.brain.market_regime,
-        "brain_risk_mode":    context.brain.risk_mode,
+        # Brain fields removed — W22
+        "behavioral_verdict": context.interpretation.verdict,
         "weight_bucket":      _bucket_weight(context.behavioral_weight),
     }
 

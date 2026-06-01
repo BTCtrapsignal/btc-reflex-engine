@@ -40,7 +40,6 @@ from app.engines.structure_engine import StructureState
 from app.engines.rotation_engine import RotationObservation
 from app.engines.choch_engine import CHoCHState
 from app.engines.volatility_engine import VolatilityState
-from app.integrations.brain_reader import BrainState
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +67,6 @@ class ExtendedMemoryWriter:
         candles: list[dict],
         structure: StructureState,
         volatility: VolatilityState,
-        brain: BrainState,
     ) -> Optional[FakeBreakoutEvent]:
         """
         Detect a fake breakout from recent candle behavior.
@@ -116,7 +114,7 @@ class ExtendedMemoryWriter:
                         volatility_state    = volatility.state,
                         structure_type      = structure.structure_type,
                         structure_phase     = structure.phase,
-                        regime_context      = brain.market_regime,
+                        regime_context      = "independent",
                         liquidity_behavior  = "sweep_then_reverse",
                     )
                     db.add(event)
@@ -144,7 +142,7 @@ class ExtendedMemoryWriter:
                         volatility_state    = volatility.state,
                         structure_type      = structure.structure_type,
                         structure_phase     = structure.phase,
-                        regime_context      = brain.market_regime,
+                        regime_context      = "independent",
                         liquidity_behavior  = "sweep_then_reverse",
                     )
                     db.add(event)
@@ -170,7 +168,6 @@ class ExtendedMemoryWriter:
         candles: list[dict],
         rotation: RotationObservation,
         volatility: VolatilityState,
-        brain: BrainState,
         structure: StructureState,
     ) -> Optional[LiquiditySweepEvent]:
         """
@@ -215,7 +212,7 @@ class ExtendedMemoryWriter:
                 continuation_after_sweep = False,  # resolved on next cycle
                 volatility_state     = volatility.state,
                 structure_type       = structure.structure_type,
-                regime_context       = brain.market_regime,
+                regime_context       = "independent",
             )
             db.add(event)
             logger.info(
@@ -238,7 +235,6 @@ class ExtendedMemoryWriter:
         candles: list[dict],
         volatility: VolatilityState,
         structure: StructureState,
-        brain: BrainState,
     ) -> Optional[VolatilityTrapEvent]:
         """
         Detect a volatility trap:
@@ -280,7 +276,7 @@ class ExtendedMemoryWriter:
                             recovery_type            = "returned_to_range",
                             duration_candles         = 2,
                             structure_type           = structure.structure_type,
-                            regime_context           = brain.market_regime,
+                            regime_context           = "independent",
                         )
                         db.add(event)
                         logger.info(
@@ -306,7 +302,6 @@ class ExtendedMemoryWriter:
         choch: CHoCHState,
         structure: StructureState,
         volatility: VolatilityState,
-        brain: BrainState,
     ) -> Optional[FailedContinuationEvent]:
         """
         Detect a failed continuation:
@@ -341,8 +336,8 @@ class ExtendedMemoryWriter:
                 structure_transition        = structure.phase,
                 volatility_state            = volatility.state,
                 structure_type              = structure.structure_type,
-                regime_context              = brain.market_regime,
-                brain_continuation_state    = brain.continuation_state,
+                regime_context              = "independent",
+                brain_continuation_state    = "independent",  # Brain removed W22
             )
             db.add(event)
             logger.info(

@@ -25,8 +25,8 @@ class Settings(BaseModel):
     reflex_telegram_bot_token: str | None = os.getenv("REFLEX_TELEGRAM_BOT_TOKEN")
     reflex_telegram_chat_id: str | None   = os.getenv("REFLEX_TELEGRAM_CHAT_ID")
 
-    # ── Brain Ops read-only feed ──────────────────────────────────────────────
-    brain_state_url: str | None = os.getenv("REFLEX_BRAIN_STATE_URL")
+    # Brain Ops integration removed — W22 architecture correction
+    # REFLEX_BRAIN_STATE_URL intentionally removed
 
     # ── Binance data feed ─────────────────────────────────────────────────────
     binance_base_url: str = os.getenv(

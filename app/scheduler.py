@@ -20,7 +20,7 @@ from app.engines.rotation_engine import RotationEngine
 from app.engines.choch_engine import CHoCHEngine
 from app.engines.volatility_engine import VolatilityEngine
 from app.engines.context_assembler import BehavioralContextAssembler
-from app.integrations.brain_reader import fetch_brain_state
+# Brain reader removed — W22 architecture correction
 from app.notifiers.telegram_reflex_bot import send_observation, send_error_alert
 from app.notifiers import alert_gate
 from app.database.db import get_db
@@ -47,7 +47,7 @@ def run_observation_cycle() -> None:
 
     Steps:
       1. Fetch market data (Binance)
-      2. Fetch Brain Ops context (read-only)
+      2. [REMOVED] Brain Ops context — W22 architecture correction
       3. Run all behavioral engines
       4. Update memory layer (structure lifecycle + boundary touches)
       5. Resolve pending outcomes from prior touches
@@ -70,8 +70,7 @@ def run_observation_cycle() -> None:
             logger.warning("[scheduler] Empty candle data — skipping cycle.")
             return
 
-        # ── 2. Brain Ops Context (read-only) ──────────────────────────────────
-        brain = fetch_brain_state()
+        # Brain Ops context removed — W22 (Reflex is fully independent)
 
         # ── 3. Behavioral Engines ─────────────────────────────────────────────
         structure_4h = _structure_engine.analyze(candles_4h, timeframe="4H")
@@ -113,25 +112,24 @@ def run_observation_cycle() -> None:
             # production state, never influences live behavior.
             _ext_mem.detect_and_record_fake_breakout(
                 db, settings.symbol, "4H", candles_4h,
-                structure_4h, volatility, brain
+                structure_4h, volatility
             )
             _ext_mem.detect_and_record_liquidity_sweep(
                 db, settings.symbol, "4H", candles_4h,
-                rotation, volatility, brain, structure_4h
+                rotation, volatility, structure_4h
             )
             _ext_mem.detect_and_record_volatility_trap(
                 db, settings.symbol, "4H", candles_4h,
-                volatility, structure_4h, brain
+                volatility, structure_4h
             )
             _ext_mem.detect_and_record_failed_continuation(
                 db, settings.symbol, "4H", candles_4h,
-                choch, structure_4h, volatility, brain
+                choch, structure_4h, volatility
             )
 
         # ── 7. Assemble Behavioral Context ────────────────────────────────────
         context = _assembler.assemble(
             symbol=settings.symbol,
-            brain=brain,
             structure_4h=structure_4h,
             structure_1h=structure_1h,
             rotation=rotation,
@@ -200,7 +198,7 @@ def run_observation_cycle() -> None:
                 price           = current_price,
                 choch_detected  = context.choch.choch_detected,
                 alert_priority  = decision.priority,
-                brain_source    = context.brain.source,
+                brain_source    = "disabled",  # Brain removed W22
             )
             _update_memory_counts()
         except Exception as state_exc:
@@ -214,7 +212,7 @@ def run_observation_cycle() -> None:
                 structure_phase="unknown", location="unknown",
                 volatility="unknown", weight=0.0, price=None,
                 choch_detected=False, alert_priority="LOW",
-                brain_source="fallback",
+                brain_source="disabled",
             )
         except Exception:
             pass
@@ -250,14 +248,14 @@ def _log_observation(context, current_price: float | None) -> None:
                 symbol=context.symbol,
                 mode=settings.mode,
 
-                # Brain context
-                brain_market_regime=context.brain.market_regime,
-                brain_macro_bias=context.brain.macro_bias,
-                brain_confidence=context.brain.confidence,
-                brain_continuation_state=context.brain.continuation_state,
-                brain_volatility_state=context.brain.volatility_state,
-                brain_risk_mode=context.brain.risk_mode,
-                brain_source=context.brain.source,
+                # Brain context removed — W22 (stop writing to these columns)
+                brain_market_regime="disabled",
+                brain_macro_bias="disabled",
+                brain_confidence=0.0,
+                brain_continuation_state="disabled",
+                brain_volatility_state="disabled",
+                brain_risk_mode="disabled",
+                brain_source="disabled",
 
                 # 4H structure
                 structure_4h_type=context.structure_4h.structure_type,
