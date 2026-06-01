@@ -109,8 +109,10 @@ def update_after_cycle(
         _state.last_price           = price
         _state.last_choch_detected  = choch_detected
         _state.last_alert_priority  = alert_priority
-        _state.brain_connected      = brain_source != "fallback"
-        _state.brain_source         = brain_source
+        # W22 doctrine: Reflex is fully Brain-unaware.
+        # Do not infer Brain connectivity from scheduler labels such as "disabled".
+        _state.brain_connected      = False
+        _state.brain_source         = "disabled"
         _state.adaptive_state       = "stable"
     else:
         _state.adaptive_state = "degraded"
@@ -186,7 +188,8 @@ def get_status() -> dict:
         "active_reflections":  active_reflections,
 
         # ── Brain connection ──────────────────────────────────────────────────
-        "brain_connected":     _state.brain_connected,
+        # Always false by doctrine: Reflex must not depend on or report Brain connectivity.
+        "brain_connected":     False,
 
         # ── Cycle health ──────────────────────────────────────────────────────
         "cycles_completed":    _state.cycles_completed,
