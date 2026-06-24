@@ -1,0 +1,30 @@
+--- a/app/scheduler.py
++++ b/app/scheduler.py
+@@ -17,6 +17,7 @@ from app.notifiers.telegram_reflex_bot import send_observation, send_error_alert
+ from app.notifiers import alert_gate
+ from app.database.db import get_db
+ from app.database.models import TacticalObservation
+ from app.database.memory_layer import MemoryLayer
+ from app.database.extended_memory import ExtendedMemoryWriter
+ from app.monitor import runtime_state
++from app.journal.reflex_journal_exporter import ReflexJournalExporter
+
+@@ -28,6 +29,7 @@ _choch_engine = CHoCHEngine(swing_lookback=settings.swing_lookback)
+ _volatility_engine = VolatilityEngine()
+ _assembler = BehavioralContextAssembler()
+ _memory  = MemoryLayer()
+ _ext_mem = ExtendedMemoryWriter()
++_journal_exporter = ReflexJournalExporter()
+
+
+@@ -95,6 +97,10 @@ def run_observation_cycle() -> None:
+         # ── 8. Log to Database ────────────────────────────────────────────────
+         _log_observation(context, current_price)
+
++        # ── 8a. Reflex Observation Journal — Sprint 3A ────────────────────────
++        # Independent of alert gate. Evaluates C1/C2 triggers directly on context.
++        # Failure never propagates — exporter contains its own error boundary.
++        _journal_exporter.maybe_export(context)
++
+         # ── 9. Alert Gate — event-driven, no spam ─────────────────────────────
+         decision = alert_gate.evaluate(context)

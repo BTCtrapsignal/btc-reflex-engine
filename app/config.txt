@@ -1,0 +1,12 @@
+--- a/app/config.py
++++ b/app/config.py
+@@ -56,6 +56,10 @@ class Settings(BaseModel):
+     # ── Alert threshold ───────────────────────────────────────────────────────
+     # Minimum behavioral weight to trigger Telegram alert (0.0–1.0)
+     alert_threshold: float = float(os.getenv("REFLEX_ALERT_THRESHOLD", "0.40"))
++
++    # ── Observation Journal (Sprint 3A) ───────────────────────────────────────
++    # Root directory for journal file output. Override via Railway ENV.
++    # Daily artifact:  {dir}/BTC-Brain/raw/REFLEX-DAY-{YYYY-MM-DD}.md
++    # Journal index:   {dir}/wiki/intelligence/Reflex_Observation_Journal.md
++    reflex_journal_dir: str = os.getenv("REFLEX_JOURNAL_DIR", ".")
