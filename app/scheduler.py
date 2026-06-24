@@ -28,6 +28,7 @@ from app.database.models import TacticalObservation
 from app.database.memory_layer import MemoryLayer
 from app.database.extended_memory import ExtendedMemoryWriter
 from app.monitor import runtime_state
+from app.journal.reflex_journal_exporter import ReflexJournalExporter  # Sprint 3A
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,7 @@ _volatility_engine = VolatilityEngine()
 _assembler = BehavioralContextAssembler()
 _memory  = MemoryLayer()
 _ext_mem = ExtendedMemoryWriter()
+_journal_exporter = ReflexJournalExporter()  # Sprint 3A
 
 
 def run_observation_cycle() -> None:
@@ -54,6 +56,7 @@ def run_observation_cycle() -> None:
       6. Build memory context for narrative enrichment
       7. Assemble behavioral context + narrative
       8. Log to database
+      8a. Reflex Observation Journal export — Sprint 3A
       9. Send Telegram alert if weight >= threshold
     """
     cycle_start = datetime.now(timezone.utc)
@@ -141,6 +144,11 @@ def run_observation_cycle() -> None:
 
         # ── 8. Log to Database ────────────────────────────────────────────────
         _log_observation(context, current_price)
+
+        # ── 8a. Reflex Observation Journal — Sprint 3A ────────────────────────
+        # Independent of alert gate. Evaluates C1/C2 triggers directly on context.
+        # Failure never propagates — exporter contains its own error boundary.
+        _journal_exporter.maybe_export(context)
 
         # ── 9. Alert Gate — event-driven, no spam ─────────────────────────────
         # All Telegram decisions go through alert_gate.
