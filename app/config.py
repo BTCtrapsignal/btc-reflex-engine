@@ -70,5 +70,26 @@ class Settings(BaseModel):
     # Minimum behavioral weight to trigger Telegram alert (0.0–1.0)
     alert_threshold: float = float(os.getenv("REFLEX_ALERT_THRESHOLD", "0.40"))
 
+    # ── Composite Breakdown Detector (Sprint 3B-P1) ───────────────────────────
+    # Observer mode only. No execution. No Signal Bot modification.
+    # All ENV vars prefixed REFLEX_ per project convention.
+
+    # Seconds between consecutive breakdown alerts (default: 30 min)
+    breakdown_cooldown_secs: int = int(
+        os.getenv("REFLEX_BREAKDOWN_COOLDOWN_SECS", "1800")
+    )
+    # Minimum non-trend signals for WATCH level
+    breakdown_signals_watch: int = int(
+        os.getenv("REFLEX_BREAKDOWN_SIGNALS_WATCH", "2")
+    )
+    # Minimum non-trend signals for HIGH_RISK level
+    breakdown_signals_high: int = int(
+        os.getenv("REFLEX_BREAKDOWN_SIGNALS_HIGH", "3")
+    )
+    # Minimum volatility.expansion_score to flag volume expansion
+    breakdown_volume_expansion_min: float = float(
+        os.getenv("REFLEX_BREAKDOWN_VOLUME_MIN", "0.55")
+    )
+
 
 settings = Settings()

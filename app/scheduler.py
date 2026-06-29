@@ -29,6 +29,7 @@ from app.database.memory_layer import MemoryLayer
 from app.database.extended_memory import ExtendedMemoryWriter
 from app.monitor import runtime_state
 from app.journal.reflex_journal_exporter import ReflexJournalExporter  # Sprint 3A
+from app.engines.composite_breakdown_detector import CompositeBreakdownDetector  # Sprint 3B-P1
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,12 @@ _assembler = BehavioralContextAssembler()
 _memory  = MemoryLayer()
 _ext_mem = ExtendedMemoryWriter()
 _journal_exporter = ReflexJournalExporter()  # Sprint 3A
+_breakdown_detector = CompositeBreakdownDetector(          # Sprint 3B-P1
+    cooldown_secs        = settings.breakdown_cooldown_secs,
+    signals_watch        = settings.breakdown_signals_watch,
+    signals_high         = settings.breakdown_signals_high,
+    volume_expansion_min = settings.breakdown_volume_expansion_min,
+)
 
 
 def run_observation_cycle() -> None:
@@ -57,6 +64,7 @@ def run_observation_cycle() -> None:
       7. Assemble behavioral context + narrative
       8. Log to database
       8a. Reflex Observation Journal export — Sprint 3A
+      8b. Composite Breakdown Detector — Sprint 3B-P1
       9. Send Telegram alert if weight >= threshold
     """
     cycle_start = datetime.now(timezone.utc)
@@ -150,6 +158,14 @@ def run_observation_cycle() -> None:
         # Failure never propagates — exporter contains its own error boundary.
         _journal_exporter.maybe_export(context)
 
+        # ── 8b. Composite Breakdown Detector — Sprint 3B-P1 ──────────────────
+        # Pure evaluation: BehavioralContext → BreakdownResult.
+        # Detector owns NO actions. Scheduler owns surfacing decisions.
+        # Failure never propagates — detector contains its own error boundary.
+        _breakdown_result = _breakdown_detector.evaluate(context)
+        if _breakdown_result.fired:
+            _surface_breakdown_alert(_breakdown_result)
+
         # ── 9. Alert Gate — event-driven, no spam ─────────────────────────────
         # All Telegram decisions go through alert_gate.
         # Heartbeat / unchanged state / low weight → Railway log only.
@@ -227,6 +243,36 @@ def run_observation_cycle() -> None:
         send_error_alert(f"Reflex cycle error: {exc}")
 
 
+def _surface_breakdown_alert(result) -> None:
+    """
+    Surface a fired BreakdownResult to Telegram.
+
+    The detector owns evaluation only.
+    This function owns the surfacing decision — keeping them separate
+    means the detector can be tested and replaced without touching I/O.
+
+    Observer mode only. Never modifies Signal Bot state.
+    Failure here never affects scheduler, alert gate, or DB writes.
+    """
+    try:
+        from app.notifiers.telegram_reflex_bot import send_raw
+        sent = send_raw(result.narrative)
+        if sent:
+            logger.info(
+                "[breakdown] surfaced | level=%s signals=%d weight=%.3f",
+                result.level,
+                result.signals.bearish_count,
+                result.weight,
+            )
+        else:
+            logger.warning(
+                "[breakdown] narrative not delivered (Telegram returned False) "
+                "level=%s", result.level
+            )
+    except Exception as exc:
+        logger.error(
+            "[breakdown] surface failed (non-fatal): %s", exc
+        )
 
 
 def _update_memory_counts() -> None:
