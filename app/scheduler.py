@@ -33,6 +33,45 @@ from app.engines.composite_breakdown_detector import CompositeBreakdownDetector 
 
 logger = logging.getLogger(__name__)
 
+# ── REQ-W27-004: Notification Deduplication State ─────────────────────────────
+# Session-scoped fingerprint of the last delivered Telegram observation.
+# Resets to "" on scheduler restart — first notification always delivers.
+# Notification layer only. No analytical logic reads or writes this variable.
+_last_sent_observation_fingerprint: str = ""
+
+
+def _build_observation_fingerprint(context) -> str:
+    """
+    Build a semantic state fingerprint from a BehavioralContext.
+
+    Captures the fields that uniquely identify a meaningful engineering state:
+      - interpretation verdict (the primary behavioural classification)
+      - structural phase (the 4H structural context)
+      - structural type (range / trend / channel)
+      - CHoCH detected flag and direction
+      - volatility state (expanding / compressed / stable)
+
+    Numerical values (weight, scores, prices, percentages) are intentionally
+    excluded — these change every cycle without representing a new engineering
+    state and would defeat deduplication.
+
+    REQ-W27-004: NFR-1 guarantee — this function never raises. On any
+    attribute error it returns a unique timestamp-based string, ensuring
+    the notification always delivers rather than being silently suppressed.
+    """
+    try:
+        verdict    = getattr(context.interpretation, "verdict", "unknown") if hasattr(context, "interpretation") else getattr(context, "behavioral_verdict", "unknown")
+        phase      = context.structure_4h.phase
+        stype      = context.structure_4h.structure_type
+        choch_det  = str(context.choch.choch_detected)
+        choch_dir  = context.choch.choch_direction or "none"
+        vol_state  = context.volatility.state
+        return f"{verdict}|{phase}|{stype}|{choch_det}|{choch_dir}|{vol_state}"
+    except Exception:
+        # NFR-1: on any failure return unique value — notification delivers
+        return f"fingerprint_error_{time.time()}"
+
+
 # Engine instances (stateless — safe to reuse)
 _structure_engine = StructureEngine(swing_lookback=settings.swing_lookback)
 _rotation_engine = RotationEngine()
@@ -172,12 +211,47 @@ def run_observation_cycle() -> None:
         # Only meaningful state changes or HIGH priority → Telegram.
         decision = alert_gate.evaluate(context)
 
+        # ── REQ-W27-004: Notification Deduplication ───────────────────────────
+        # After the alert gate approves a send, check whether the semantic
+        # engineering state has materially changed since the last delivery.
+        # If the fingerprint is unchanged, suppress the notification.
+        #
+        # NFR-1: Genuine state transitions are NEVER suppressed.
+        # The following conditions always bypass deduplication:
+        #   - CHoCH detected (structural shift)
+        #   - Breakdown alert fired (already surfaced above via _surface_breakdown_alert)
+        #   - Persistence reminder (explicit re-notification by design)
+        #
+        # NFR-2: No latency — fingerprint comparison is O(1) string equality.
+        # DB writes (_log_observation) and journal export are unaffected —
+        # they complete before this guard and run on every cycle regardless.
+        global _last_sent_observation_fingerprint
+        _dedup_suppressed = False
+        if decision.should_send and not decision.is_persistence_reminder:
+            _is_genuine_transition = context.choch.choch_detected
+            if not _is_genuine_transition:
+                _current_fingerprint = _build_observation_fingerprint(context)
+                if _current_fingerprint == _last_sent_observation_fingerprint:
+                    logger.info(
+                        "[scheduler] Observation suppressed — state unchanged since last send"
+                        " | req=REQ-W27-004 fingerprint=%s",
+                        _current_fingerprint,
+                    )
+                    _dedup_suppressed = True
+                else:
+                    logger.info(
+                        "[scheduler] Observation fingerprint changed — delivering"
+                        " | req=REQ-W27-004 prev=%s new=%s",
+                        _last_sent_observation_fingerprint or "none",
+                        _current_fingerprint,
+                    )
+
         logger.info(
             "[scheduler] Gate: priority=%s send=%s | %s",
             decision.priority, decision.should_send, decision.reason
         )
 
-        if decision.should_send:
+        if decision.should_send and not _dedup_suppressed:
             # Use compact persistence narrative for reminders
             # Full narrative for all other alerts
             if decision.is_persistence_reminder:
@@ -194,6 +268,9 @@ def run_observation_cycle() -> None:
                     decision.priority, context.behavioral_weight,
                     decision.is_persistence_reminder,
                 )
+                # REQ-W27-004: update fingerprint only after confirmed delivery
+                if not decision.is_persistence_reminder:
+                    _last_sent_observation_fingerprint = _build_observation_fingerprint(context)
         else:
             # Heartbeat — Railway log only, never Telegram
             price_str = f"{current_price:,.2f}" if current_price else "unknown"
